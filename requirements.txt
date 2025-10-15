@@ -1,6 +1,7 @@
-streamlit==1.39.0
-openai==1.40.3
+streamlit
 pandas
-python-docx
+openai
 pdfplumber
+python-docx
 extract-msg
+openpyxl
