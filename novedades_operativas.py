@@ -1,17 +1,17 @@
 # =========================
 # 📬 ANALIZADOR DE NOVEDADES OPERATIVAS GNB
 # Autor: Andrés Cruz - Contacto Solutions
-# Versión: Compatible con todas las versiones de OpenAI SDK
+# Versión: Compatible con openai>=1.0.0
 # =========================
 
 import streamlit as st
 import pandas as pd
-import openai
 import io
 import pdfplumber
 from docx import Document
 import extract_msg
 import json
+from openai import OpenAI
 
 # =========================
 # ⚙️ CONFIGURACIÓN INICIAL
@@ -24,7 +24,7 @@ st.title("Analizador de Novedades Operativas - Contacto Solutions")
 # =========================
 IA_DISPONIBLE = False
 try:
-    openai.api_key = st.secrets["OPENAI_API_KEY"]
+    client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
     IA_DISPONIBLE = True
     st.info("✅ Conexión con OpenAI establecida correctamente.")
 except Exception as e:
@@ -42,12 +42,10 @@ if "procesando" not in st.session_state:
 # 🧩 FUNCIONES AUXILIARES
 # =========================
 def leer_archivo_msg(archivo):
-    """Lee correos .msg de Outlook"""
     msg = extract_msg.Message(archivo)
     return f"De: {msg.sender}\nAsunto: {msg.subject}\n\n{msg.body}"
 
 def leer_archivo_pdf(archivo):
-    """Lee texto de archivos PDF"""
     texto = ""
     with pdfplumber.open(archivo) as pdf:
         for pagina in pdf.pages:
@@ -57,12 +55,10 @@ def leer_archivo_pdf(archivo):
     return texto.strip()
 
 def leer_archivo_docx(archivo):
-    """Lee texto de archivos Word .docx"""
     doc = Document(archivo)
     return "\n".join([p.text for p in doc.paragraphs]).strip()
 
 def analizar_novedad(texto):
-    """Analiza el texto de la novedad con IA"""
     if not IA_DISPONIBLE:
         return {
             "categoria": "VALIDAR MANUALMENTE",
@@ -83,7 +79,7 @@ Responde estrictamente en formato JSON con las siguientes claves:
 """
 
     try:
-        respuesta = openai.ChatCompletion.create(
+        respuesta = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[
                 {"role": "system", "content": "Eres un abogado experto en operaciones judiciales bancarias."},
@@ -92,9 +88,8 @@ Responde estrictamente en formato JSON con las siguientes claves:
             temperature=0.3
         )
 
-        contenido = respuesta["choices"][0]["message"]["content"]
+        contenido = respuesta.choices[0].message.content
 
-        # Intentar parsear el JSON
         try:
             datos = json.loads(contenido)
         except Exception:
@@ -169,16 +164,24 @@ if st.session_state.novedades_data:
     st.subheader("Resultado consolidado")
     st.dataframe(df, use_container_width=True)
 
-    # Descargar Excel
     buffer = io.BytesIO()
-    df.to_excel(buffer, index=False, engine="openpyxl")
-    buffer.seek(0)
-    st.download_button(
-        label="Descargar resultados en Excel",
-        data=buffer,
-        file_name="Novedades_Operativas_Resultados.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-    )
+    try:
+        df.to_excel(buffer, index=False, engine="openpyxl")
+        buffer.seek(0)
+        st.download_button(
+            label="Descargar resultados en Excel",
+            data=buffer,
+            file_name="Novedades_Operativas_Resultados.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+    except Exception:
+        csv_data = df.to_csv(index=False).encode("utf-8")
+        st.download_button(
+            label="Descargar resultados en CSV",
+            data=csv_data,
+            file_name="Novedades_Operativas_Resultados.csv",
+            mime="text/csv"
+        )
 
 # =========================
 # 🔄 LIMPIAR SESIÓN
