@@ -1,14 +1,13 @@
 # =========================
 # 📬 ANALIZADOR DE NOVEDADES OPERATIVAS GNB
 # Autor: Andrés Cruz - Contacto Solutions
-# Versión: IA compatible (OpenAI SDK >= 1.40)
+# Versión: Limpia sin estilos
 # =========================
 
 import streamlit as st
 import pandas as pd
 import openai
 import io
-import os
 import pdfplumber
 from docx import Document
 import extract_msg
@@ -16,18 +15,19 @@ import extract_msg
 # =========================
 # ⚙️ CONFIGURACIÓN INICIAL
 # =========================
-st.set_page_config(page_title="📬 Novedades Operativas GNB", layout="wide")
-st.title("🤖 Analizador de Novedades Operativas - Contacto Solutions ⚖️")
+st.set_page_config(page_title="Novedades Operativas GNB", layout="wide")
+st.title("Analizador de Novedades Operativas - Contacto Solutions")
 
 # =========================
 # 🔐 CONFIGURACIÓN DE API
 # =========================
+IA_DISPONIBLE = False
 try:
     client = openai.OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
     IA_DISPONIBLE = True
+    st.info("✅ Conexión con OpenAI establecida correctamente.")
 except Exception as e:
-    IA_DISPONIBLE = False
-    st.warning(f"⚠️ OpenAI SDK no disponible ({e}). El análisis IA devolverá 'VALIDAR MANUALMENTE'.")
+    st.warning(f"⚠️ No se pudo inicializar la IA. Error: {e}")
 
 # =========================
 # 📁 VARIABLES GLOBALES
@@ -36,18 +36,6 @@ if "novedades_data" not in st.session_state:
     st.session_state["novedades_data"] = []
 if "procesando" not in st.session_state:
     st.session_state["procesando"] = False
-
-# =========================
-# 🎨 ESTILOS
-# =========================
-st.markdown("""
-<style>
-    body { color: #1B168C; background-color: #FFFFFF; }
-    .stApp { background-color: #FFFFFF; }
-    .block-container { padding-top: 1rem; }
-    .uploadedFile { color: #1B168C; }
-</style>
-""", unsafe_allow_html=True)
 
 # =========================
 # 🧩 FUNCIONES AUXILIARES
@@ -60,7 +48,9 @@ def leer_archivo_pdf(archivo):
     texto = ""
     with pdfplumber.open(archivo) as pdf:
         for pagina in pdf.pages:
-            texto += pagina.extract_text() + "\n"
+            page_text = pagina.extract_text()
+            if page_text:
+                texto += page_text + "\n"
     return texto.strip()
 
 def leer_archivo_docx(archivo):
@@ -71,34 +61,44 @@ def analizar_novedad(texto):
     if not IA_DISPONIBLE:
         return {
             "categoria": "VALIDAR MANUALMENTE",
-            "accion_recomendada": "Revisar el contenido manualmente. No se pudo usar la IA.",
+            "accion_recomendada": "Revisar manualmente el contenido. La IA no está disponible.",
             "respuesta_sugerida": "VALIDAR MANUALMENTE"
         }
 
     prompt = f"""
-Analiza el siguiente correo o documento de novedad operativa del banco y clasifícalo según su naturaleza.
+Analiza el siguiente correo o documento de novedad operativa y clasifícalo según su naturaleza.
 
 Texto:
 {texto}
 
-Responde en formato JSON con las siguientes claves:
-- categoria: tipo general del requerimiento (ej: 'Mandamiento no visible', 'Auto pendiente de carga', 'Error en documento', 'Revisión de medidas', etc.)
-- accion_recomendada: qué debe hacer el usuario para subsanar o resolver la novedad
-- respuesta_sugerida: texto redactado para responder al correo del banco profesionalmente
+Responde estrictamente en formato JSON con las siguientes claves:
+- categoria
+- accion_recomendada
+- respuesta_sugerida
 """
     try:
         respuesta = client.chat.completions.create(
             model="gpt-4o-mini",
-            messages=[{"role": "system", "content": "Eres un abogado experto en operaciones judiciales bancarias."},
-                      {"role": "user", "content": prompt}],
+            messages=[
+                {"role": "system", "content": "Eres un abogado experto en operaciones judiciales bancarias."},
+                {"role": "user", "content": prompt}
+            ],
             temperature=0.3
         )
         contenido = respuesta.choices[0].message.content
-        return eval(contenido) if "{" in contenido else {
-            "categoria": "ERROR DE FORMATO",
-            "accion_recomendada": "La IA no devolvió un JSON válido.",
-            "respuesta_sugerida": contenido
-        }
+
+        # Intentar convertir el JSON textual en dict
+        import json
+        try:
+            datos = json.loads(contenido)
+        except Exception:
+            datos = {
+                "categoria": "ERROR DE FORMATO",
+                "accion_recomendada": "La IA no devolvió un JSON válido.",
+                "respuesta_sugerida": contenido
+            }
+        return datos
+
     except Exception as e:
         return {
             "categoria": "ERROR DE PROCESAMIENTO",
@@ -109,11 +109,15 @@ Responde en formato JSON con las siguientes claves:
 # =========================
 # 🧾 INTERFAZ DE CARGA
 # =========================
-st.subheader("📂 Cargar correos o documentos (.msg, .pdf, .docx)")
-archivos = st.file_uploader("Selecciona uno o varios archivos", type=["msg", "pdf", "docx"], accept_multiple_files=True)
+st.subheader("Cargar correos o documentos (.msg, .pdf, .docx)")
+archivos = st.file_uploader(
+    "Selecciona uno o varios archivos",
+    type=["msg", "pdf", "docx"],
+    accept_multiple_files=True
+)
 
 if archivos:
-    if st.button("🚀 Analizar Novedades"):
+    if st.button("Analizar Novedades"):
         st.session_state.procesando = True
         resultados = []
 
@@ -148,31 +152,31 @@ if archivos:
 
         st.session_state.novedades_data.extend(resultados)
         st.session_state.procesando = False
-        st.success("✅ Análisis completado")
+        st.success("Análisis completado correctamente.")
 
 # =========================
 # 📊 RESULTADOS
 # =========================
 if st.session_state.novedades_data:
     df = pd.DataFrame(st.session_state.novedades_data)
-    st.subheader("📋 Resultado consolidado")
+    st.subheader("Resultado consolidado")
     st.dataframe(df, use_container_width=True)
 
-    # 📥 Descargar Excel
+    # Descargar Excel
     buffer = io.BytesIO()
     df.to_excel(buffer, index=False, engine="openpyxl")
     buffer.seek(0)
     st.download_button(
-        label="⬇️ Descargar resultados en Excel",
+        label="Descargar resultados en Excel",
         data=buffer,
         file_name="Novedades_Operativas_Resultados.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
 
 # =========================
-# 🔄 OPCIÓN PARA LIMPIAR SESIÓN
+# 🔄 LIMPIAR SESIÓN
 # =========================
-if st.button("🧹 Limpiar sesión"):
+if st.button("Limpiar sesión"):
     st.session_state.novedades_data = []
     st.session_state.procesando = False
-    st.experimental_rerun()
+    st.rerun()
