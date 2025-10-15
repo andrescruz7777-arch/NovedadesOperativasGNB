@@ -1,16 +1,16 @@
 # =========================
 # 📬 ANALIZADOR DE NOVEDADES OPERATIVAS GNB
 # Autor: Andrés Cruz - Contacto Solutions
-# Versión: Compatible con openai>=1.0.0 y limpieza JSON automática
+# Versión: Compatible con openai>=1.0.0 + Resumen ejecutivo y CC/nombre/fecha
 # =========================
 
 import streamlit as st
 import pandas as pd
-import io
+import io, re, json
+from datetime import datetime
 import pdfplumber
 from docx import Document
 import extract_msg
-import json
 from openai import OpenAI
 
 # =========================
@@ -42,12 +42,10 @@ if "procesando" not in st.session_state:
 # 🧩 FUNCIONES AUXILIARES
 # =========================
 def leer_archivo_msg(archivo):
-    """Lee correos .msg de Outlook"""
     msg = extract_msg.Message(archivo)
     return f"De: {msg.sender}\nAsunto: {msg.subject}\n\n{msg.body}"
 
 def leer_archivo_pdf(archivo):
-    """Lee texto de archivos PDF"""
     texto = ""
     with pdfplumber.open(archivo) as pdf:
         for pagina in pdf.pages:
@@ -57,9 +55,25 @@ def leer_archivo_pdf(archivo):
     return texto.strip()
 
 def leer_archivo_docx(archivo):
-    """Lee texto de archivos Word .docx"""
     doc = Document(archivo)
     return "\n".join([p.text for p in doc.paragraphs]).strip()
+
+def extraer_cc_y_nombre(texto):
+    """Busca CC y nombre dentro del texto"""
+    cc = ""
+    nombre = ""
+
+    # Buscar cédula (CC 12345678 o 1.234.567.890)
+    cc_match = re.search(r"CC[:\s_]*([0-9\.\-]+)", texto, re.IGNORECASE)
+    if cc_match:
+        cc = cc_match.group(1).replace(".", "").replace("-", "").strip()
+
+    # Buscar posible nombre (antes o después de la cédula)
+    nombre_match = re.search(r"([A-ZÁÉÍÓÚÑ ]{3,})\s*CC", texto)
+    if nombre_match:
+        nombre = nombre_match.group(1).title().strip()
+
+    return cc, nombre
 
 def analizar_novedad(texto):
     """Analiza el texto de la novedad con IA"""
@@ -96,11 +110,8 @@ No incluyas comillas triples ni bloques de código (no uses ```json ni ```).
         )
 
         contenido = respuesta.choices[0].message.content.strip()
-
-        # 🔧 Limpieza: eliminar ```json, ``` y otros marcadores de bloque
         contenido = contenido.replace("```json", "").replace("```", "").strip()
 
-        # Intentar convertir a JSON
         try:
             datos = json.loads(contenido)
         except Exception:
@@ -114,7 +125,6 @@ No incluyas comillas triples ni bloques de código (no uses ```json ni ```).
                     "respuesta_sugerida": contenido
                 }
 
-        # Si se decodificó correctamente, marcar validado
         if datos.get("categoria", "").upper() not in ["ERROR DE FORMATO", "ERROR DE PROCESAMIENTO"]:
             datos["validado_ia"] = "Sí"
         else:
@@ -141,7 +151,7 @@ archivos = st.file_uploader(
 )
 
 if archivos:
-    if st.button("🚀 Analizar Novedades"):
+    if st.button("Analizar Novedades"):
         st.session_state.procesando = True
         resultados = []
 
@@ -159,21 +169,30 @@ if archivos:
                 else:
                     texto = ""
 
+                cc, nombre_cli = extraer_cc_y_nombre(texto)
                 analisis = analizar_novedad(texto)
+                fecha_analisis = datetime.now().strftime("%Y-%m-%d %H:%M")
+
                 resultados.append({
                     "ARCHIVO": nombre,
+                    "CC": cc,
+                    "NOMBRE_CLIENTE": nombre_cli,
                     "CATEGORIA": analisis.get("categoria", ""),
                     "ACCION_RECOMENDADA": analisis.get("accion_recomendada", ""),
                     "RESPUESTA_SUGERIDA": analisis.get("respuesta_sugerida", ""),
-                    "VALIDADO_IA": analisis.get("validado_ia", "")
+                    "VALIDADO_IA": analisis.get("validado_ia", ""),
+                    "FECHA_ANALISIS": fecha_analisis
                 })
             except Exception as e:
                 resultados.append({
                     "ARCHIVO": nombre,
+                    "CC": "",
+                    "NOMBRE_CLIENTE": "",
                     "CATEGORIA": "ERROR DE LECTURA",
                     "ACCION_RECOMENDADA": f"Revisar manualmente ({e})",
                     "RESPUESTA_SUGERIDA": "VALIDAR MANUALMENTE",
-                    "VALIDADO_IA": "No"
+                    "VALIDADO_IA": "No",
+                    "FECHA_ANALISIS": datetime.now().strftime("%Y-%m-%d %H:%M")
                 })
 
         st.session_state.novedades_data.extend(resultados)
@@ -181,20 +200,41 @@ if archivos:
         st.success("✅ Análisis completado correctamente.")
 
 # =========================
-# 📊 RESULTADOS
+# 📊 RESULTADOS Y RESUMEN EJECUTIVO
 # =========================
 if st.session_state.novedades_data:
     df = pd.DataFrame(st.session_state.novedades_data)
-    st.subheader("Resultado consolidado")
+    st.subheader("📋 Resultado consolidado")
     st.dataframe(df, use_container_width=True)
 
-    # Descargar resultados (Excel o CSV según disponibilidad)
+    # =========================
+    # 📊 RESUMEN EJECUTIVO
+    # =========================
+    st.subheader(f"📊 Resumen ejecutivo del análisis preliminar ({len(df)} correos)")
+    resumen = df.groupby("CATEGORIA").size().reset_index(name="Frecuencia")
+    resumen["% del total"] = (resumen["Frecuencia"] / len(df) * 100).round(1)
+
+    # Asignar impacto operativo (puedes ajustar estos valores)
+    impacto_map = {
+        "Errores de cargue documental": "🔴 Alto",
+        "Desfase procesal (estado rama vs banco)": "🔴 Alto",
+        "Errores de identificación del demandado": "🟠 Medio",
+        "Duplicidad / cruces inconsistentes": "🟠 Medio",
+        "Fallas en aplicativo o reportería": "🟡 Bajo–Medio",
+        "Errores de notificación / comunicación": "🟡 Bajo",
+        "Demoras de gestión / sin movimiento": "🟢 Medio–Alto",
+    }
+    resumen["Impacto operativo"] = resumen["CATEGORIA"].map(impacto_map).fillna("🟢 Bajo")
+
+    st.dataframe(resumen, use_container_width=True)
+
+    # Descargar Excel/CSV
     buffer = io.BytesIO()
     try:
         df.to_excel(buffer, index=False, engine="openpyxl")
         buffer.seek(0)
         st.download_button(
-            label=" 📩 Descargar resultados en Excel",
+            label="⬇️ Descargar resultados en Excel",
             data=buffer,
             file_name="Novedades_Operativas_Resultados.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -202,7 +242,7 @@ if st.session_state.novedades_data:
     except Exception:
         csv_data = df.to_csv(index=False).encode("utf-8")
         st.download_button(
-            label="📩 Descargar resultados en CSV",
+            label="⬇️ Descargar resultados en CSV",
             data=csv_data,
             file_name="Novedades_Operativas_Resultados.csv",
             mime="text/csv"
@@ -211,7 +251,7 @@ if st.session_state.novedades_data:
 # =========================
 # 🔄 LIMPIAR SESIÓN
 # =========================
-if st.button(" 🧼 Limpiar sesión"):
+if st.button("Limpiar sesión"):
     st.session_state.novedades_data = []
     st.session_state.procesando = False
     st.rerun()
