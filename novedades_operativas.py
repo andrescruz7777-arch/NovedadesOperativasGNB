@@ -1,7 +1,7 @@
 # =========================
 # 📬 ANALIZADOR DE NOVEDADES OPERATIVAS GNB
 # Autor: Andrés Cruz - Contacto Solutions
-# Versión: Compatible con openai>=1.0.0 + Resumen ejecutivo y CC/nombre/fecha
+# Versión: Abogado judicial colombiano con MBA, precisión legal real y categorías dinámicas
 # =========================
 
 import streamlit as st
@@ -17,7 +17,7 @@ from openai import OpenAI
 # ⚙️ CONFIGURACIÓN INICIAL
 # =========================
 st.set_page_config(page_title="Novedades Operativas GNB", layout="wide")
-st.title("Analizador de Novedades Operativas - Contacto Solutions")
+st.title("Analizador de Novedades Operativas - Contacto Solutions ⚖️")
 
 # =========================
 # 🔐 CONFIGURACIÓN DE API
@@ -59,54 +59,73 @@ def leer_archivo_docx(archivo):
     return "\n".join([p.text for p in doc.paragraphs]).strip()
 
 def extraer_cc_y_nombre(texto):
-    """Busca CC y nombre dentro del texto"""
+    """Detecta número de cédula y nombre si aparecen en el texto."""
     cc = ""
     nombre = ""
-
-    # Buscar cédula (CC 12345678 o 1.234.567.890)
     cc_match = re.search(r"CC[:\s_]*([0-9\.\-]+)", texto, re.IGNORECASE)
     if cc_match:
         cc = cc_match.group(1).replace(".", "").replace("-", "").strip()
-
-    # Buscar posible nombre (antes o después de la cédula)
     nombre_match = re.search(r"([A-ZÁÉÍÓÚÑ ]{3,})\s*CC", texto)
     if nombre_match:
         nombre = nombre_match.group(1).title().strip()
-
     return cc, nombre
 
 def analizar_novedad(texto):
-    """Analiza el texto de la novedad con IA"""
+    """Analiza la novedad con base jurídica colombiana real y explicación operativa clara."""
     if not IA_DISPONIBLE:
         return {
             "categoria": "VALIDAR MANUALMENTE",
-            "accion_recomendada": "Revisar manualmente el contenido. La IA no está disponible.",
+            "accion_recomendada": "Revisar manualmente. La IA no está disponible.",
             "respuesta_sugerida": "VALIDAR MANUALMENTE",
             "validado_ia": "No"
         }
 
     prompt = f"""
-Analiza el siguiente correo o documento de novedad operativa y clasifícalo según su naturaleza.
+Actúa como un **abogado judicial colombiano senior**, con formación en **MBA, gestión de riesgos procesales y dirección jurídica**.
+Analiza un correo o documento remitido por el **Banco GNB Sudameris** como una **novedad operativa (PQR)** dirigida al área jurídica o back office judicial.
 
-Texto:
+🧠 Tu perfil:
+- Eres experto en **procesos ejecutivos bancarios** bajo el **Código General del Proceso (Ley 1564 de 2012)** y normas relacionadas como la **Ley 2213 de 2022** sobre medios electrónicos.
+- Conoces de cerca el trabajo de back office, gestión de bases judiciales, cargas procesales y seguimiento de mandamientos, medidas cautelares, autos, y requerimientos.
+- NO inventas leyes ni artículos. Solo usas **normas y prácticas procesales reales de Colombia**.
+- Si no aplica citar norma, explicas con lenguaje **operativo y pedagógico** lo que se debe hacer, sin tecnicismos.
+
+🎯 Objetivo:
+1. Clasifica la novedad dentro de una **categoría principal**. Usa una de las siguientes si aplica:
+   - Errores de cargue documental
+   - Desfase procesal (estado rama vs banco)
+   - Errores de identificación del demandado
+   - Duplicidad / cruces inconsistentes
+   - Fallas en aplicativo o reportería
+   - Errores de notificación / comunicación
+   - Demoras de gestión / sin movimiento
+   - Otras (especificar)
+2. Si ninguna encaja exactamente, **crea una nueva categoría breve y clara**.
+3. Indica una **acción recomendada**, en pasos simples, para que un **auxiliar o analista de back office** sepa qué hacer (revisar, escalar, cargar, notificar, etc.).
+4. Redacta una **respuesta sugerida profesional y empática** como si respondieras al correo del banco, breve, formal y fácil de entender.
+5. No cites leyes que no existan ni normas extranjeras.
+
+Responde solo en formato JSON con esta estructura:
+{{
+  "categoria": "",
+  "accion_recomendada": "",
+  "respuesta_sugerida": ""
+}}
+
+No uses bloques de código (no ```json ni ```).
+
+Texto a analizar:
 {texto}
-
-Responde estrictamente en formato JSON con las siguientes claves:
-- categoria
-- accion_recomendada
-- respuesta_sugerida
-
-No incluyas comillas triples ni bloques de código (no uses ```json ni ```).
 """
 
     try:
         respuesta = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[
-                {"role": "system", "content": "Eres un abogado experto en operaciones judiciales bancarias."},
+                {"role": "system", "content": "Eres un abogado colombiano con MBA y experiencia en litigio bancario, procesos ejecutivos y gestión operativa judicial. Hablas con precisión legal real, claridad y enfoque pedagógico."},
                 {"role": "user", "content": prompt}
             ],
-            temperature=0.3
+            temperature=0.25
         )
 
         contenido = respuesta.choices[0].message.content.strip()
@@ -143,22 +162,21 @@ No incluyas comillas triples ni bloques de código (no uses ```json ni ```).
 # =========================
 # 🧾 INTERFAZ DE CARGA
 # =========================
-st.subheader("Cargar correos o documentos (.msg, .pdf, .docx)")
+st.subheader("📂 Cargar correos o documentos (.msg, .pdf, .docx)")
 archivos = st.file_uploader(
-    "Selecciona uno o varios archivos",
+    "Selecciona uno o varios archivos para analizar",
     type=["msg", "pdf", "docx"],
     accept_multiple_files=True
 )
 
 if archivos:
-    if st.button("Analizar Novedades"):
+    if st.button("🚀 Analizar Novedades"):
         st.session_state.procesando = True
         resultados = []
 
         for archivo in archivos:
             nombre = archivo.name
             extension = nombre.split(".")[-1].lower()
-
             try:
                 if extension == "msg":
                     texto = leer_archivo_msg(archivo)
@@ -207,14 +225,10 @@ if st.session_state.novedades_data:
     st.subheader("📋 Resultado consolidado")
     st.dataframe(df, use_container_width=True)
 
-    # =========================
-    # 📊 RESUMEN EJECUTIVO
-    # =========================
     st.subheader(f"📊 Resumen ejecutivo del análisis preliminar ({len(df)} correos)")
     resumen = df.groupby("CATEGORIA").size().reset_index(name="Frecuencia")
     resumen["% del total"] = (resumen["Frecuencia"] / len(df) * 100).round(1)
 
-    # Asignar impacto operativo (puedes ajustar estos valores)
     impacto_map = {
         "Errores de cargue documental": "🔴 Alto",
         "Desfase procesal (estado rama vs banco)": "🔴 Alto",
@@ -228,7 +242,7 @@ if st.session_state.novedades_data:
 
     st.dataframe(resumen, use_container_width=True)
 
-    # Descargar Excel/CSV
+    # 📥 Descargar resultados
     buffer = io.BytesIO()
     try:
         df.to_excel(buffer, index=False, engine="openpyxl")
@@ -251,7 +265,7 @@ if st.session_state.novedades_data:
 # =========================
 # 🔄 LIMPIAR SESIÓN
 # =========================
-if st.button("Limpiar sesión"):
+if st.button("🧹 Limpiar sesión"):
     st.session_state.novedades_data = []
     st.session_state.procesando = False
     st.rerun()
