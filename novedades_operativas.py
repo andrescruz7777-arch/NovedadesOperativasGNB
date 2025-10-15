@@ -141,7 +141,7 @@ archivos = st.file_uploader(
 )
 
 if archivos:
-    if st.button("Analizar Novedades"):
+    if st.button("🚀 Analizar Novedades"):
         st.session_state.procesando = True
         resultados = []
 
@@ -194,7 +194,7 @@ if st.session_state.novedades_data:
         df.to_excel(buffer, index=False, engine="openpyxl")
         buffer.seek(0)
         st.download_button(
-            label="Descargar resultados en Excel",
+            label=" 📩 Descargar resultados en Excel",
             data=buffer,
             file_name="Novedades_Operativas_Resultados.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -202,7 +202,7 @@ if st.session_state.novedades_data:
     except Exception:
         csv_data = df.to_csv(index=False).encode("utf-8")
         st.download_button(
-            label="Descargar resultados en CSV",
+            label="📩 Descargar resultados en CSV",
             data=csv_data,
             file_name="Novedades_Operativas_Resultados.csv",
             mime="text/csv"
@@ -211,7 +211,7 @@ if st.session_state.novedades_data:
 # =========================
 # 🔄 LIMPIAR SESIÓN
 # =========================
-if st.button("Limpiar sesión"):
+if st.button(" 🧼 Limpiar sesión"):
     st.session_state.novedades_data = []
     st.session_state.procesando = False
     st.rerun()
