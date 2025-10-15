@@ -1,12 +1,12 @@
 # =========================
 # 📬 ANALIZADOR DE NOVEDADES OPERATIVAS GNB
 # Autor: Andrés Cruz - Contacto Solutions
-# Versión: IA con razonamiento autónomo (abogado judicial colombiano + MBA)
+# Versión: IA experta (detalle completo + acción recomendada sin asunto)
 # =========================
 
 import streamlit as st
 import pandas as pd
-import io, re, json, os
+import io, re, json
 from datetime import datetime
 import pdfplumber
 from docx import Document
@@ -46,7 +46,7 @@ def leer_archivo_msg(archivo):
     asunto = msg.subject or ""
     cuerpo = msg.body or ""
     remitente = msg.sender or ""
-    return asunto, f"De: {remitente}\nAsunto: {asunto}\n\n{cuerpo}"
+    return asunto, f"De: {remitente}\n\n{cuerpo}"
 
 def leer_archivo_pdf(archivo):
     texto = ""
@@ -78,33 +78,34 @@ def analizar_novedad(texto):
     if not IA_DISPONIBLE:
         return {
             "categoria": "VALIDAR MANUALMENTE",
-            "accion_recomendada": "Revisar manualmente. La IA no está disponible.",
+            "detalle_novedad": "No se pudo analizar el contenido. La IA no está disponible.",
+            "accion_recomendada": "Revisar manualmente el correo.",
             "respuesta_sugerida": "VALIDAR MANUALMENTE",
-            "accion_automatizada": "Sin IA disponible",
             "validado_ia": "No"
         }
 
     prompt = f"""
-Actúa como un **abogado judicial colombiano senior con MBA**, especializado en **procesos ejecutivos bancarios, riesgos procesales y gestión de back office judicial**.
-Tu papel es analizar un correo o documento de novedad operativa del **Banco GNB Sudameris** y emitir un análisis claro, completo y ejecutable.
+Eres un **abogado judicial colombiano senior con MBA**, especializado en **procesos ejecutivos bancarios, riesgos procesales y gestión de back office judicial**.
 
-📋 **Reglas:**
-1. Usa solo normas procesales **reales y vigentes en Colombia** (CGP - Ley 1564 de 2012, Ley 2213 de 2022, etc.).  
-2. No inventes leyes ni artículos.
-3. Si la novedad dice que el **sistema está desactualizado**, instruye que se busque en la carpeta compartida del cliente `/mnt/shared/clientes/[CC]/` y se cargue el soporte en el aplicativo.
-4. Si menciona que el **juzgado está incorrecto o no coincide**, indica validar en la página oficial de la **Rama Judicial** y actualizar los datos.
-5. Si hay **más de una solicitud en el correo**, incluye **todas** sin omitir ninguna.
-6. Si la novedad **no encaja en las categorías anteriores**, **razona y crea una acción y categoría nuevas**, de acuerdo con tu criterio jurídico-operativo y perfil profesional.
+Tu tarea es analizar un correo o documento de novedad operativa del Banco GNB Sudameris y producir un informe completo, preciso y operativo para el equipo de back office.
 
-🎯 Tu salida debe ser clara y estructurada en formato JSON con los siguientes campos:
+🎯 INSTRUCCIONES CLAVE:
+1. Usa solo **normas procesales reales de Colombia** (Ley 1564 de 2012 - CGP, Ley 2213 de 2022, etc.). No inventes leyes ni artículos.
+2. Clasifica la novedad dentro de una **categoría general** (por ejemplo: “Errores de cargue documental”, “Desfase procesal”, “Fallas del sistema”, “Solicitud de actualización”, etc.).
+3. En **DETALLE_NOVEDAD**, describe claramente todo lo que menciona el correo, sin omitir ninguna solicitud, comentario o detalle.
+4. En **ACCION_RECOMENDADA**, explica paso a paso qué debe hacer el back office para resolver la novedad, con un lenguaje claro y práctico.
+5. En **RESPUESTA_SUGERIDA**, redacta una respuesta formal, empática y profesional dirigida al banco.
+6. Si la novedad no encaja en ninguna categoría conocida, **crea una nueva categoría** coherente con el contexto procesal y de riesgo operativo.
+
+Responde estrictamente en formato JSON con las siguientes claves:
 {{
-  "categoria": "tipo de novedad o incidencia procesal detectada",
-  "accion_recomendada": "qué debe hacer el back office, paso a paso",
-  "respuesta_sugerida": "texto formal y empático para responder al banco",
-  "accion_automatizada": "instrucción práctica para ejecutar en el sistema o la carpeta compartida"
+  "categoria": "",
+  "detalle_novedad": "",
+  "accion_recomendada": "",
+  "respuesta_sugerida": ""
 }}
 
-Texto del correo o documento:
+Texto a analizar:
 {texto}
 """
 
@@ -112,7 +113,7 @@ Texto del correo o documento:
         respuesta = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[
-                {"role": "system", "content": "Eres un abogado judicial colombiano con MBA, experto en riesgo procesal y operaciones judiciales bancarias. Tu tono es técnico, empático y orientado a la acción."},
+                {"role": "system", "content": "Eres un abogado colombiano con MBA, experto en litigio bancario y gestión judicial. Escribes de manera clara, exacta y con rigor procesal."},
                 {"role": "user", "content": prompt}
             ],
             temperature=0.25
@@ -129,9 +130,9 @@ Texto del correo o documento:
             except Exception:
                 datos = {
                     "categoria": "ERROR DE FORMATO",
-                    "accion_recomendada": "La IA no devolvió un JSON válido.",
-                    "respuesta_sugerida": contenido,
-                    "accion_automatizada": "Sin acción detectada"
+                    "detalle_novedad": "La IA no devolvió un JSON válido.",
+                    "accion_recomendada": "Validar manualmente.",
+                    "respuesta_sugerida": contenido
                 }
 
         datos["validado_ia"] = "Sí" if "ERROR" not in datos.get("categoria", "").upper() else "No"
@@ -140,9 +141,9 @@ Texto del correo o documento:
     except Exception as e:
         return {
             "categoria": "ERROR DE PROCESAMIENTO",
-            "accion_recomendada": f"Validar manualmente. Error: {e}",
+            "detalle_novedad": f"Error: {e}",
+            "accion_recomendada": "Validar manualmente.",
             "respuesta_sugerida": "VALIDAR MANUALMENTE",
-            "accion_automatizada": "Sin acción detectada",
             "validado_ia": "No"
         }
 
@@ -163,7 +164,6 @@ if archivos and st.button("🚀 Analizar Novedades"):
     for archivo in archivos:
         nombre = archivo.name
         extension = nombre.split(".")[-1].lower()
-        asunto = ""
         try:
             if extension == "msg":
                 asunto, texto = leer_archivo_msg(archivo)
@@ -184,26 +184,24 @@ if archivos and st.button("🚀 Analizar Novedades"):
 
             resultados.append({
                 "ARCHIVO": nombre,
-                "ASUNTO": asunto,
                 "CC": cc,
                 "NOMBRE_CLIENTE": nombre_cli,
                 "CATEGORIA": analisis.get("categoria", ""),
+                "DETALLE_NOVEDAD": analisis.get("detalle_novedad", ""),
                 "ACCION_RECOMENDADA": analisis.get("accion_recomendada", ""),
                 "RESPUESTA_SUGERIDA": analisis.get("respuesta_sugerida", ""),
-                "ACCION_AUTOMATIZADA": analisis.get("accion_automatizada", ""),
                 "VALIDADO_IA": analisis.get("validado_ia", ""),
                 "FECHA_ANALISIS": fecha_analisis
             })
         except Exception as e:
             resultados.append({
                 "ARCHIVO": nombre,
-                "ASUNTO": asunto,
                 "CC": "",
                 "NOMBRE_CLIENTE": "",
                 "CATEGORIA": "ERROR DE LECTURA",
-                "ACCION_RECOMENDADA": f"Revisar manualmente ({e})",
+                "DETALLE_NOVEDAD": f"Revisar manualmente ({e})",
+                "ACCION_RECOMENDADA": "VALIDAR MANUALMENTE",
                 "RESPUESTA_SUGERIDA": "VALIDAR MANUALMENTE",
-                "ACCION_AUTOMATIZADA": "Sin acción detectada",
                 "VALIDADO_IA": "No",
                 "FECHA_ANALISIS": datetime.now().strftime("%Y-%m-%d %H:%M")
             })
@@ -223,8 +221,7 @@ if st.session_state.novedades_data:
     st.subheader(f"📊 Resumen ejecutivo del análisis preliminar ({len(df)} correos)")
     resumen = df.groupby("CATEGORIA").size().reset_index(name="Frecuencia")
     resumen["% del total"] = (resumen["Frecuencia"] / len(df) * 100).round(1)
-
-    impacto_map = {
+    resumen["Impacto operativo"] = resumen["CATEGORIA"].map({
         "Errores de cargue documental": "🔴 Alto",
         "Desfase procesal (estado rama vs banco)": "🔴 Alto",
         "Errores de identificación del demandado": "🟠 Medio",
@@ -232,8 +229,7 @@ if st.session_state.novedades_data:
         "Fallas en aplicativo o reportería": "🟡 Bajo–Medio",
         "Errores de notificación / comunicación": "🟡 Bajo",
         "Demoras de gestión / sin movimiento": "🟢 Medio–Alto",
-    }
-    resumen["Impacto operativo"] = resumen["CATEGORIA"].map(impacto_map).fillna("🟢 Bajo")
+    }).fillna("🟢 Bajo")
 
     st.dataframe(resumen, use_container_width=True)
 
