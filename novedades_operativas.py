@@ -1,7 +1,7 @@
 # =========================
 # 📬 ANALIZADOR DE NOVEDADES OPERATIVAS GNB
 # Autor: Andrés Cruz - Contacto Solutions
-# Versión: Abogado judicial colombiano con MBA, precisión legal real y categorías dinámicas
+# Versión: Detección de CC y nombre desde asunto + precisión legal colombiana
 # =========================
 
 import streamlit as st
@@ -42,10 +42,15 @@ if "procesando" not in st.session_state:
 # 🧩 FUNCIONES AUXILIARES
 # =========================
 def leer_archivo_msg(archivo):
+    """Lee correos .msg de Outlook e incluye asunto y cuerpo."""
     msg = extract_msg.Message(archivo)
-    return f"De: {msg.sender}\nAsunto: {msg.subject}\n\n{msg.body}"
+    asunto = msg.subject or ""
+    cuerpo = msg.body or ""
+    remitente = msg.sender or ""
+    return asunto, f"De: {remitente}\nAsunto: {asunto}\n\n{cuerpo}"
 
 def leer_archivo_pdf(archivo):
+    """Lee texto de archivos PDF"""
     texto = ""
     with pdfplumber.open(archivo) as pdf:
         for pagina in pdf.pages:
@@ -55,16 +60,19 @@ def leer_archivo_pdf(archivo):
     return texto.strip()
 
 def leer_archivo_docx(archivo):
+    """Lee texto de archivos Word .docx"""
     doc = Document(archivo)
     return "\n".join([p.text for p in doc.paragraphs]).strip()
 
 def extraer_cc_y_nombre(texto):
-    """Detecta número de cédula y nombre si aparecen en el texto."""
+    """Detecta número de cédula y nombre si aparecen en el texto o asunto."""
     cc = ""
     nombre = ""
+    # Buscar CC
     cc_match = re.search(r"CC[:\s_]*([0-9\.\-]+)", texto, re.IGNORECASE)
     if cc_match:
         cc = cc_match.group(1).replace(".", "").replace("-", "").strip()
+    # Buscar nombre antes de CC (en mayúsculas)
     nombre_match = re.search(r"([A-ZÁÉÍÓÚÑ ]{3,})\s*CC", texto)
     if nombre_match:
         nombre = nombre_match.group(1).title().strip()
@@ -85,13 +93,13 @@ Actúa como un **abogado judicial colombiano senior**, con formación en **MBA, 
 Analiza un correo o documento remitido por el **Banco GNB Sudameris** como una **novedad operativa (PQR)** dirigida al área jurídica o back office judicial.
 
 🧠 Tu perfil:
-- Eres experto en **procesos ejecutivos bancarios** bajo el **Código General del Proceso (Ley 1564 de 2012)** y normas relacionadas como la **Ley 2213 de 2022** sobre medios electrónicos.
-- Conoces de cerca el trabajo de back office, gestión de bases judiciales, cargas procesales y seguimiento de mandamientos, medidas cautelares, autos, y requerimientos.
-- NO inventas leyes ni artículos. Solo usas **normas y prácticas procesales reales de Colombia**.
-- Si no aplica citar norma, explicas con lenguaje **operativo y pedagógico** lo que se debe hacer, sin tecnicismos.
+- Experto en procesos ejecutivos bancarios bajo el **Código General del Proceso (Ley 1564 de 2012)** y la **Ley 2213 de 2022** sobre medios electrónicos.
+- NO inventes leyes ni artículos. Usa solo normas procesales **reales y vigentes de Colombia**.
+- Si no aplica citar norma, explica en lenguaje operativo lo que debe hacerse (no técnico).
+- El objetivo es guiar al **back office**, no emitir conceptos jurídicos.
 
 🎯 Objetivo:
-1. Clasifica la novedad dentro de una **categoría principal**. Usa una de las siguientes si aplica:
+1. Clasifica la novedad en una **categoría principal**. Usa una de las siguientes si aplica:
    - Errores de cargue documental
    - Desfase procesal (estado rama vs banco)
    - Errores de identificación del demandado
@@ -101,9 +109,9 @@ Analiza un correo o documento remitido por el **Banco GNB Sudameris** como una *
    - Demoras de gestión / sin movimiento
    - Otras (especificar)
 2. Si ninguna encaja exactamente, **crea una nueva categoría breve y clara**.
-3. Indica una **acción recomendada**, en pasos simples, para que un **auxiliar o analista de back office** sepa qué hacer (revisar, escalar, cargar, notificar, etc.).
-4. Redacta una **respuesta sugerida profesional y empática** como si respondieras al correo del banco, breve, formal y fácil de entender.
-5. No cites leyes que no existan ni normas extranjeras.
+3. Indica una **acción recomendada** simple y ejecutable por el back office (qué revisar, cómo corregir o a quién escalar).
+4. Redacta una **respuesta sugerida profesional y empática**, como si respondieras al correo del banco, clara y sin tecnicismos.
+5. No cites leyes extranjeras ni inventadas.
 
 Responde solo en formato JSON con esta estructura:
 {{
@@ -122,7 +130,7 @@ Texto a analizar:
         respuesta = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[
-                {"role": "system", "content": "Eres un abogado colombiano con MBA y experiencia en litigio bancario, procesos ejecutivos y gestión operativa judicial. Hablas con precisión legal real, claridad y enfoque pedagógico."},
+                {"role": "system", "content": "Eres un abogado colombiano con MBA, especializado en litigio bancario, riesgos procesales y liderazgo de back office. Explicas con precisión legal real y lenguaje claro."},
                 {"role": "user", "content": prompt}
             ],
             temperature=0.25
@@ -177,22 +185,30 @@ if archivos:
         for archivo in archivos:
             nombre = archivo.name
             extension = nombre.split(".")[-1].lower()
+            asunto = ""
             try:
                 if extension == "msg":
-                    texto = leer_archivo_msg(archivo)
+                    asunto, texto = leer_archivo_msg(archivo)
                 elif extension == "pdf":
+                    asunto = ""
                     texto = leer_archivo_pdf(archivo)
                 elif extension == "docx":
+                    asunto = ""
                     texto = leer_archivo_docx(archivo)
                 else:
                     texto = ""
 
-                cc, nombre_cli = extraer_cc_y_nombre(texto)
+                # Buscar CC y nombre primero en el asunto, luego en el cuerpo
+                cc, nombre_cli = extraer_cc_y_nombre(asunto)
+                if not cc and not nombre_cli:
+                    cc, nombre_cli = extraer_cc_y_nombre(texto)
+
                 analisis = analizar_novedad(texto)
                 fecha_analisis = datetime.now().strftime("%Y-%m-%d %H:%M")
 
                 resultados.append({
                     "ARCHIVO": nombre,
+                    "ASUNTO": asunto,
                     "CC": cc,
                     "NOMBRE_CLIENTE": nombre_cli,
                     "CATEGORIA": analisis.get("categoria", ""),
@@ -204,6 +220,7 @@ if archivos:
             except Exception as e:
                 resultados.append({
                     "ARCHIVO": nombre,
+                    "ASUNTO": asunto,
                     "CC": "",
                     "NOMBRE_CLIENTE": "",
                     "CATEGORIA": "ERROR DE LECTURA",
@@ -242,7 +259,6 @@ if st.session_state.novedades_data:
 
     st.dataframe(resumen, use_container_width=True)
 
-    # 📥 Descargar resultados
     buffer = io.BytesIO()
     try:
         df.to_excel(buffer, index=False, engine="openpyxl")
