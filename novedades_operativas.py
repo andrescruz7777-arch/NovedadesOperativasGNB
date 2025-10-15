@@ -1,7 +1,7 @@
 # =========================
 # 📬 ANALIZADOR DE NOVEDADES OPERATIVAS GNB
 # Autor: Andrés Cruz - Contacto Solutions
-# Versión: Compatible con openai>=1.0.0
+# Versión: Compatible con openai>=1.0.0 y limpieza JSON automática
 # =========================
 
 import streamlit as st
@@ -42,10 +42,12 @@ if "procesando" not in st.session_state:
 # 🧩 FUNCIONES AUXILIARES
 # =========================
 def leer_archivo_msg(archivo):
+    """Lee correos .msg de Outlook"""
     msg = extract_msg.Message(archivo)
     return f"De: {msg.sender}\nAsunto: {msg.subject}\n\n{msg.body}"
 
 def leer_archivo_pdf(archivo):
+    """Lee texto de archivos PDF"""
     texto = ""
     with pdfplumber.open(archivo) as pdf:
         for pagina in pdf.pages:
@@ -55,15 +57,18 @@ def leer_archivo_pdf(archivo):
     return texto.strip()
 
 def leer_archivo_docx(archivo):
+    """Lee texto de archivos Word .docx"""
     doc = Document(archivo)
     return "\n".join([p.text for p in doc.paragraphs]).strip()
 
 def analizar_novedad(texto):
+    """Analiza el texto de la novedad con IA"""
     if not IA_DISPONIBLE:
         return {
             "categoria": "VALIDAR MANUALMENTE",
             "accion_recomendada": "Revisar manualmente el contenido. La IA no está disponible.",
-            "respuesta_sugerida": "VALIDAR MANUALMENTE"
+            "respuesta_sugerida": "VALIDAR MANUALMENTE",
+            "validado_ia": "No"
         }
 
     prompt = f"""
@@ -76,6 +81,8 @@ Responde estrictamente en formato JSON con las siguientes claves:
 - categoria
 - accion_recomendada
 - respuesta_sugerida
+
+No incluyas comillas triples ni bloques de código (no uses ```json ni ```).
 """
 
     try:
@@ -88,16 +95,30 @@ Responde estrictamente en formato JSON con las siguientes claves:
             temperature=0.3
         )
 
-        contenido = respuesta.choices[0].message.content
+        contenido = respuesta.choices[0].message.content.strip()
 
+        # 🔧 Limpieza: eliminar ```json, ``` y otros marcadores de bloque
+        contenido = contenido.replace("```json", "").replace("```", "").strip()
+
+        # Intentar convertir a JSON
         try:
             datos = json.loads(contenido)
         except Exception:
-            datos = {
-                "categoria": "ERROR DE FORMATO",
-                "accion_recomendada": "La IA no devolvió un JSON válido.",
-                "respuesta_sugerida": contenido
-            }
+            try:
+                contenido_corr = contenido.replace('""', '"')
+                datos = json.loads(contenido_corr)
+            except Exception:
+                datos = {
+                    "categoria": "ERROR DE FORMATO",
+                    "accion_recomendada": "La IA no devolvió un JSON válido.",
+                    "respuesta_sugerida": contenido
+                }
+
+        # Si se decodificó correctamente, marcar validado
+        if datos.get("categoria", "").upper() not in ["ERROR DE FORMATO", "ERROR DE PROCESAMIENTO"]:
+            datos["validado_ia"] = "Sí"
+        else:
+            datos["validado_ia"] = "No"
 
         return datos
 
@@ -105,7 +126,8 @@ Responde estrictamente en formato JSON con las siguientes claves:
         return {
             "categoria": "ERROR DE PROCESAMIENTO",
             "accion_recomendada": f"Validar manualmente. Error: {e}",
-            "respuesta_sugerida": "VALIDAR MANUALMENTE"
+            "respuesta_sugerida": "VALIDAR MANUALMENTE",
+            "validado_ia": "No"
         }
 
 # =========================
@@ -142,14 +164,16 @@ if archivos:
                     "ARCHIVO": nombre,
                     "CATEGORIA": analisis.get("categoria", ""),
                     "ACCION_RECOMENDADA": analisis.get("accion_recomendada", ""),
-                    "RESPUESTA_SUGERIDA": analisis.get("respuesta_sugerida", "")
+                    "RESPUESTA_SUGERIDA": analisis.get("respuesta_sugerida", ""),
+                    "VALIDADO_IA": analisis.get("validado_ia", "")
                 })
             except Exception as e:
                 resultados.append({
                     "ARCHIVO": nombre,
                     "CATEGORIA": "ERROR DE LECTURA",
                     "ACCION_RECOMENDADA": f"Revisar manualmente ({e})",
-                    "RESPUESTA_SUGERIDA": "VALIDAR MANUALMENTE"
+                    "RESPUESTA_SUGERIDA": "VALIDAR MANUALMENTE",
+                    "VALIDADO_IA": "No"
                 })
 
         st.session_state.novedades_data.extend(resultados)
@@ -164,6 +188,7 @@ if st.session_state.novedades_data:
     st.subheader("Resultado consolidado")
     st.dataframe(df, use_container_width=True)
 
+    # Descargar resultados (Excel o CSV según disponibilidad)
     buffer = io.BytesIO()
     try:
         df.to_excel(buffer, index=False, engine="openpyxl")
