@@ -1,7 +1,7 @@
 # =========================
 # 📬 ANALIZADOR DE NOVEDADES OPERATIVAS GNB
 # Autor: Andrés Cruz - Contacto Solutions
-# Versión: Detección de CC y nombre desde asunto + precisión legal colombiana
+# Versión: Detección exacta de cédula desde el asunto (.msg)
 # =========================
 
 import streamlit as st
@@ -68,12 +68,12 @@ def extraer_cc_y_nombre(texto):
     """Detecta número de cédula y nombre si aparecen en el texto o asunto."""
     cc = ""
     nombre = ""
-    # Buscar CC
-    cc_match = re.search(r"CC[:\s_]*([0-9\.\-]+)", texto, re.IGNORECASE)
+    # Buscar patrón CC o cédula
+    cc_match = re.search(r"(?:CC[_\s:]*|CÉDULA[_\s:]*)?([0-9]{5,12})", texto, re.IGNORECASE)
     if cc_match:
-        cc = cc_match.group(1).replace(".", "").replace("-", "").strip()
-    # Buscar nombre antes de CC (en mayúsculas)
-    nombre_match = re.search(r"([A-ZÁÉÍÓÚÑ ]{3,})\s*CC", texto)
+        cc = cc_match.group(1).strip()
+    # Buscar nombre completo (en mayúsculas, antes de la cédula)
+    nombre_match = re.search(r"([A-ZÁÉÍÓÚÑ ]{3,})\s*(?:CC|CÉDULA)", texto)
     if nombre_match:
         nombre = nombre_match.group(1).title().strip()
     return cc, nombre
@@ -189,21 +189,20 @@ if archivos:
             try:
                 if extension == "msg":
                     asunto, texto = leer_archivo_msg(archivo)
+                    texto_completo = asunto + "\n\n" + texto
                 elif extension == "pdf":
-                    asunto = ""
-                    texto = leer_archivo_pdf(archivo)
+                    texto_completo = leer_archivo_pdf(archivo)
                 elif extension == "docx":
-                    asunto = ""
-                    texto = leer_archivo_docx(archivo)
+                    texto_completo = leer_archivo_docx(archivo)
                 else:
-                    texto = ""
+                    texto_completo = ""
 
-                # Buscar CC y nombre primero en el asunto, luego en el cuerpo
+                # Buscar CC y nombre preferiblemente en el asunto
                 cc, nombre_cli = extraer_cc_y_nombre(asunto)
                 if not cc and not nombre_cli:
-                    cc, nombre_cli = extraer_cc_y_nombre(texto)
+                    cc, nombre_cli = extraer_cc_y_nombre(texto_completo)
 
-                analisis = analizar_novedad(texto)
+                analisis = analizar_novedad(texto_completo)
                 fecha_analisis = datetime.now().strftime("%Y-%m-%d %H:%M")
 
                 resultados.append({
