@@ -1,7 +1,7 @@
 # =========================
 # 📬 ANALIZADOR DE NOVEDADES OPERATIVAS GNB
 # Autor: Andrés Cruz - Contacto Solutions
-# Versión: Limpia sin estilos
+# Versión: Compatible con todas las versiones de OpenAI SDK
 # =========================
 
 import streamlit as st
@@ -11,6 +11,7 @@ import io
 import pdfplumber
 from docx import Document
 import extract_msg
+import json
 
 # =========================
 # ⚙️ CONFIGURACIÓN INICIAL
@@ -23,7 +24,7 @@ st.title("Analizador de Novedades Operativas - Contacto Solutions")
 # =========================
 IA_DISPONIBLE = False
 try:
-    client = openai.OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
+    openai.api_key = st.secrets["OPENAI_API_KEY"]
     IA_DISPONIBLE = True
     st.info("✅ Conexión con OpenAI establecida correctamente.")
 except Exception as e:
@@ -41,10 +42,12 @@ if "procesando" not in st.session_state:
 # 🧩 FUNCIONES AUXILIARES
 # =========================
 def leer_archivo_msg(archivo):
+    """Lee correos .msg de Outlook"""
     msg = extract_msg.Message(archivo)
     return f"De: {msg.sender}\nAsunto: {msg.subject}\n\n{msg.body}"
 
 def leer_archivo_pdf(archivo):
+    """Lee texto de archivos PDF"""
     texto = ""
     with pdfplumber.open(archivo) as pdf:
         for pagina in pdf.pages:
@@ -54,10 +57,12 @@ def leer_archivo_pdf(archivo):
     return texto.strip()
 
 def leer_archivo_docx(archivo):
+    """Lee texto de archivos Word .docx"""
     doc = Document(archivo)
     return "\n".join([p.text for p in doc.paragraphs]).strip()
 
 def analizar_novedad(texto):
+    """Analiza el texto de la novedad con IA"""
     if not IA_DISPONIBLE:
         return {
             "categoria": "VALIDAR MANUALMENTE",
@@ -76,8 +81,9 @@ Responde estrictamente en formato JSON con las siguientes claves:
 - accion_recomendada
 - respuesta_sugerida
 """
+
     try:
-        respuesta = client.chat.completions.create(
+        respuesta = openai.ChatCompletion.create(
             model="gpt-4o-mini",
             messages=[
                 {"role": "system", "content": "Eres un abogado experto en operaciones judiciales bancarias."},
@@ -85,10 +91,10 @@ Responde estrictamente en formato JSON con las siguientes claves:
             ],
             temperature=0.3
         )
-        contenido = respuesta.choices[0].message.content
 
-        # Intentar convertir el JSON textual en dict
-        import json
+        contenido = respuesta["choices"][0]["message"]["content"]
+
+        # Intentar parsear el JSON
         try:
             datos = json.loads(contenido)
         except Exception:
@@ -97,6 +103,7 @@ Responde estrictamente en formato JSON con las siguientes claves:
                 "accion_recomendada": "La IA no devolvió un JSON válido.",
                 "respuesta_sugerida": contenido
             }
+
         return datos
 
     except Exception as e:
@@ -152,7 +159,7 @@ if archivos:
 
         st.session_state.novedades_data.extend(resultados)
         st.session_state.procesando = False
-        st.success("Análisis completado correctamente.")
+        st.success("✅ Análisis completado correctamente.")
 
 # =========================
 # 📊 RESULTADOS
